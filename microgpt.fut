@@ -24,16 +24,16 @@ type params [v] = {
 -- Model components
 
 def linear [n][m] (x: [n]f32) (w: [m][n]f32) : [m]f32 =
-  map (\w_row -> reduce (+) 0f32 (map2 (*) w_row x)) w
+  map (\w_row -> f32.sum (map2 (*) w_row x)) w
 
 def softmax [n] (logits: [n]f32) : [n]f32 =
-  let max_val = reduce f32.max f32.lowest logits
+  let max_val = f32.maximum logits
   let exps = map (\v -> f32.exp (v - max_val)) logits
-  let total = reduce (+) 0f32 exps
+  let total = f32.sum exps
   in map (/ total) exps
 
 def rmsnorm [n] (x: [n]f32) : [n]f32 =
-  let ms = reduce (+) 0f32 (map (\xi -> xi * xi) x) / f32.i64 n
+  let ms = f32.sum (map2 (*) x x) / f32.i64 n
   let scale = 1f32 / f32.sqrt (ms + 1e-5)
   in map (* scale) x
 
@@ -67,18 +67,15 @@ def gpt [v]
       let x_attn = flatten (
         tabulate n_head (\h ->
           let hs = h * head_dim
-          let q_h = tabulate head_dim (\j -> q[hs + j])
+          let q_h = q[hs : hs + head_dim]
           let scale = 1f32 / f32.sqrt (f32.i64 head_dim)
           let attn_logits = tabulate block_size (\t ->
-            let dot = reduce (+) 0f32 (
-              tabulate head_dim (\j -> q_h[j] * keys[li, t, hs + j])
-            )
+            let dot = f32.sum (map2 (*) q_h keys[li, t, hs : hs + head_dim])
             in if t <= pos_id then dot * scale else -1e30f32
           )
           let attn_weights = softmax attn_logits
           in tabulate head_dim (\j ->
-            reduce (+) 0f32 (
-              tabulate block_size (\t -> attn_weights[t] * values[li, t, hs + j]))
+            f32.sum (map2 (*) attn_weights values[li, :block_size, hs + j])
           )
         )
       ) :> [n_embd]f32
